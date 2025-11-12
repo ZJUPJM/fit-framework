@@ -55,7 +55,8 @@ public class OpenAiChatCompletionResponse {
         if (CollectionUtils.isEmpty(choices)) {
             return EMPTY_RESPONSE;
         }
-        OpenAiChatMessage openAiChatMessage = choices.get(0).message;
+        // 优先使用 delta (流式响应), 如果 delta 为空则使用 message (兼容 ModelScope)
+        OpenAiChatMessage openAiChatMessage = choices.get(0).getEffectiveMessage();
         if (openAiChatMessage == null) {
             return EMPTY_RESPONSE;
         }
@@ -75,7 +76,41 @@ public class OpenAiChatCompletionResponse {
      * 模型响应消息。
      */
     public static class OpenAiChatCompletionChoice {
-        @Aliases(@Alias("delta"))
+        // 流式响应使用 delta 字段
+        private OpenAiChatMessage delta;
+        // 非流式响应使用 message 字段 (某些 API 如 ModelScope 会同时返回两者)
         private OpenAiChatMessage message;
+
+        /**
+         * 获取有效的消息对象。
+         * 优先返回 delta (流式响应), 如果 delta 不存在或内容为空则返回 message。
+         * 这样可以兼容同时返回 delta 和 message 的 API (如 ModelScope)。
+         *
+         * @return 表示有效消息的 {@link OpenAiChatMessage}。
+         */
+        public OpenAiChatMessage getEffectiveMessage() {
+            // 如果 delta 存在且有内容，优先使用 delta
+            if (delta != null && hasContent(delta)) {
+                return delta;
+            }
+            // 否则使用 message
+            return message;
+        }
+
+        /**
+         * 检查消息对象是否包含有效内容。
+         *
+         * @param msg 表示待检查的消息对象。
+         * @return 如果包含内容则返回 true。
+         */
+        private boolean hasContent(OpenAiChatMessage msg) {
+            Object content = msg.content();
+            if (content instanceof String) {
+                return StringUtils.isNotEmpty((String) content);
+            }
+            // 对于 reasoning_content 或 tool_calls 的情况
+            return StringUtils.isNotEmpty(msg.reasoningContent())
+                    || CollectionUtils.isNotEmpty(msg.toolCalls());
+        }
     }
 }
